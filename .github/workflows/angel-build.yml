@@ -229,6 +229,11 @@ jobs:
         VERSION=$(grep CMAKE_PROJECT_VERSION:STATIC deploy/build/CMakeCache.txt | cut -d= -f2)
         APK=$(ls deploy/build/client/android-build/*.apk | head -1)
         mv "$APK" "$OUT/AngelVPN_${VERSION}_${LABEL}.apk"
+
+        # small APK for modern phones (arm64 only, ~3x smaller than the universal one)
+        deploy/build.sh -t android --sign --abi arm64-v8a --build ./deploy/build/arm64
+        APK=$(ls deploy/build/arm64/client/android-build/*.apk | head -1)
+        mv "$APK" "$OUT/AngelVPN_${VERSION}_${LABEL}_arm64.apk"
         ls -l $OUT
 
     - name: 'Upload APK'
@@ -265,8 +270,10 @@ jobs:
         # versioned files stay for history; fixed names give links that never change:
         # https://github.com/<owner>/<repo>/releases/latest/download/AngelVPN-android.apk
         cd dist
-        cp AngelVPN_*_android11+.apk     AngelVPN-android.apk
-        cp AngelVPN_*_android9-10.apk    AngelVPN-android9-10.apk
+        cp AngelVPN_*_android11+_arm64.apk  AngelVPN-android.apk
+        cp AngelVPN_*_android9-10_arm64.apk AngelVPN-android9-10.apk
+        cp AngelVPN_*_android11+.apk        AngelVPN-android-universal.apk
+        cp AngelVPN_*_android9-10.apk       AngelVPN-android9-10-universal.apk
         cp AngelVPN_*_windows_x64.exe    AngelVPN-windows.exe
         ls -l
 
@@ -280,6 +287,7 @@ jobs:
         body: |
           **Android 11 и новее** — AngelVPN-android.apk
           **Android 9–10** — AngelVPN-android9-10.apk
+          Если на старом или необычном телефоне не ставится — версии *-universal.apk (больше по размеру, подходят для любых процессоров).
           **Windows 10/11** — AngelVPN-windows.exe
 
           Подписка и ключ: https://t.me/angel_vpn_shop_bot
