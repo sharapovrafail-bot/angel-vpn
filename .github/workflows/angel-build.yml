@@ -208,7 +208,12 @@ jobs:
         KEY_PASS: ${{ secrets.ANDROID_RELEASE_KEYSTORE_KEY_PASS }}
       run: |
         if [[ -n "$KEYSTORE_BASE64" ]]; then
-          echo "$KEYSTORE_BASE64" | base64 --decode > android.keystore
+          # tolerate line breaks / spaces added when the secret was pasted
+          printf '%s' "$KEYSTORE_BASE64" | tr -d ' \r\n\t' | base64 --decode --ignore-garbage > android.keystore
+          if ! keytool -list -keystore android.keystore -storepass "$KEY_PASS" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo "::error::Android keystore secret, alias or password is wrong (keytool cannot open the key)"
+            exit 1
+          fi
           echo "alias=$KEY_ALIAS" >> $GITHUB_OUTPUT
           echo "::add-mask::$KEY_PASS"
           echo "pass=$KEY_PASS" >> $GITHUB_OUTPUT
