@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CPackWiXPatch>
+    <CPackWiXFragment Id="CM_CP_AmneziaVPN.AngelVPN_service.exe">
+        <ServiceInstall
+                Id="AmneziaServiceInstall"
+                Name="AngelVPN-service"
+                DisplayName="Angel VPN Service"
+                Description="Service for Angel VPN"
+                Start="auto"
+                Type="ownProcess"
+                ErrorControl="normal"
+                Vital="no">
+            <ServiceDependency Id="BFE" />
+            <ServiceDependency Id="nsi" />
+        </ServiceInstall>
+        <ServiceControl
+                Id="AmneziaServiceControl"
+                Name="AngelVPN-service"
+                Start="install"
+                Stop="both"
+                Remove="uninstall"
+                Wait="yes" />
+    </CPackWiXFragment>
+</CPackWiXPatch>
