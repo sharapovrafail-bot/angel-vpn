@@ -4,12 +4,9 @@ name: 'Angel VPN build'
 # Runs on every push to the "main" branch and can be started by hand
 # (Actions -> Angel VPN build -> Run workflow).
 #
-# Android signing uses three repository secrets (Settings -> Secrets -> Actions):
-#   ANDROID_RELEASE_KEYSTORE_BASE64     keystore file encoded in base64
-#   ANDROID_RELEASE_KEYSTORE_KEY_ALIAS  key alias
-#   ANDROID_RELEASE_KEYSTORE_KEY_PASS   keystore / key password
-# Without them a throw-away key is generated: the APK installs fine, but every
-# build then has a different signature, so updates need a reinstall.
+# Android signing: the key is derived from the three ANDROID_RELEASE_KEYSTORE_* repository
+# secrets by deploy/android-signing/derive_keystore.py. Never change those secrets after
+# release, otherwise new APKs get a different signature and cannot update installed apps.
 
 on:
   push:
@@ -203,30 +200,17 @@ jobs:
       id: keystore
       shell: bash
       env:
-        KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
-        KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEYSTORE_KEY_ALIAS }}
-        KEY_PASS: ${{ secrets.ANDROID_RELEASE_KEYSTORE_KEY_PASS }}
+        # The signing key is derived deterministically from the repository secrets,
+        # so every build is signed with the same key and apps can be updated.
+        # Do NOT edit or delete these secrets after release: a changed value means a new key.
+        SEED: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}|${{ secrets.ANDROID_RELEASE_KEYSTORE_KEY_PASS }}|${{ secrets.ANDROID_RELEASE_KEYSTORE_KEY_ALIAS }}
       run: |
-        if [[ -n "$KEYSTORE_BASE64" ]]; then
-          # tolerate line breaks / spaces added when the secret was pasted
-          printf '%s' "$KEYSTORE_BASE64" | tr -d ' \r\n\t' | base64 --decode --ignore-garbage > android.keystore
-          if ! keytool -list -keystore android.keystore -storepass "$KEY_PASS" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
-            echo "::error::Android keystore secret, alias or password is wrong (keytool cannot open the key)"
-            exit 1
-          fi
-          echo "alias=$KEY_ALIAS" >> $GITHUB_OUTPUT
-          echo "::add-mask::$KEY_PASS"
-          echo "pass=$KEY_PASS" >> $GITHUB_OUTPUT
-        else
-          echo "::warning::Android signing secrets are not set - using a temporary key"
-          TMP_PASS=$(openssl rand -hex 16)
-          echo "::add-mask::$TMP_PASS"
-          keytool -genkeypair -keystore android.keystore -storetype PKCS12 -alias angelvpn \
-            -keyalg RSA -keysize 2048 -validity 10000 -storepass "$TMP_PASS" -keypass "$TMP_PASS" \
-            -dname "CN=Angel VPN test"
-          echo "alias=angelvpn" >> $GITHUB_OUTPUT
-          echo "pass=$TMP_PASS" >> $GITHUB_OUTPUT
-        fi
+        pip install -q pycryptodome cryptography
+        python deploy/android-signing/derive_keystore.py android.keystore > keystore.out
+        PASS=$(sed -n 's/^pass=//p' keystore.out)
+        echo "::add-mask::$PASS"
+        cat keystore.out >> $GITHUB_OUTPUT
+        rm keystore.out
 
     - name: 'Build APK'
       env:
