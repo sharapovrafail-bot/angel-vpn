@@ -264,7 +264,26 @@ jobs:
         path: dist
         merge-multiple: true
 
+    - name: 'Add files with permanent names'
+      shell: bash
+      run: |
+        # versioned files stay for history; fixed names give links that never change:
+        # https://github.com/<owner>/<repo>/releases/latest/download/AngelVPN-android.apk
+        cd dist
+        cp AngelVPN_*_android11+.apk     AngelVPN-android.apk
+        cp AngelVPN_*_android9-10.apk    AngelVPN-android9-10.apk
+        cp AngelVPN_*_windows_x64.exe    AngelVPN-windows.exe
+        ls -l
+
     - name: 'Publish GitHub release'
       uses: softprops/action-gh-release@v2
       with:
+        name: Angel VPN ${{ github.ref_name }}
+        make_latest: true
+        body: |
+          **Android 11 и новее** — AngelVPN-android.apk
+          **Android 9–10** — AngelVPN-android9-10.apk
+          **Windows 10/11** — AngelVPN-windows.exe
+
+          Подписка и ключ: https://t.me/angel_vpn_shop_bot
         files: dist/*
