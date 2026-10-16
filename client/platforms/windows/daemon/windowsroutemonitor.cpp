@@ -294,6 +294,13 @@ void WindowsRouteMonitor::updateCapturedRoutes(int family, void* ptable) {
         destination.isLinkLocal() || destination.isMulticast()) {
       continue;
     }
+    // Never pull local networks (LAN, CNC machines, printers on a second
+    // network card) into the tunnel: they are unreachable from the VPN
+    // server, so capturing them only breaks local devices.
+    if (destination.isPrivateUse() ||
+        destination.isInSubnet(QHostAddress("100.64.0.0"), 10)) {
+      continue;
+    }
 
     // If we get here, this route should be cloned.
     IPAddress prefix(destination, row->DestinationPrefix.PrefixLength);
