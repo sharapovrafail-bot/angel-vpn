@@ -33,6 +33,7 @@ class WindowsDaemon final : public Daemon {
 
  private:
   void monitorBackendFailure();
+  void ensureSplitTunnel(const InterfaceConfig& config);
 
  private:
   enum State {

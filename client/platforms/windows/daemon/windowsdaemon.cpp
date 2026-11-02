@@ -61,7 +61,17 @@ void WindowsDaemon::prepareActivation(const InterfaceConfig& config, int inetAda
   }
 }
 
+void WindowsDaemon::ensureSplitTunnel(const InterfaceConfig& config) {
+  // Angel VPN: the driver may have been unavailable when the service started
+  // (e.g. broken driver path). Retry instead of failing until a reboot.
+  if (m_splitTunnelManager == nullptr && config.m_vpnDisabledApps.length() > 0) {
+    logger.info() << "Split tunnel manager missing, retrying initialization";
+    m_splitTunnelManager = WindowsSplitTunnel::create(m_firewallManager);
+  }
+}
+
 void WindowsDaemon::activateSplitTunnel(const InterfaceConfig& config, int vpnAdapterIndex) {
+    ensureSplitTunnel(config);
     if (m_splitTunnelManager == nullptr) {
         if (config.m_vpnDisabledApps.length() > 0) {
             logger.error() << "Split tunnel manager is not initialized";
@@ -91,6 +101,9 @@ void WindowsDaemon::activateSplitTunnel(const InterfaceConfig& config, int vpnAd
 }
 
 bool WindowsDaemon::run(Op op, const InterfaceConfig& config) {
+  if (op != Down) {
+    ensureSplitTunnel(config);
+  }
   if (!m_splitTunnelManager) {
     if (config.m_vpnDisabledApps.length() > 0) {
       // The Client has sent us a list of disabled apps, but we failed

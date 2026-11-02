@@ -21,6 +21,7 @@
 #include <psapi.h>
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QFileInfo>
 #include <QNetworkInterface>
 #include <QScopeGuard>
@@ -190,6 +191,10 @@ std::unique_ptr<WindowsSplitTunnel> WindowsSplitTunnel::create(
     CloseServiceHandle(handle);
   } else {
     logger.debug() << "Driver was installed";
+    // Angel VPN: the driver service is shared with AmneziaVPN. If AmneziaVPN
+    // was uninstalled, the service still points to its (now missing) .sys
+    // file and the driver can never start. Re-point it to our own copy.
+    fixDriverPath();
   }
   // 02: Now check if the service is running
   auto driver_manager =
@@ -614,6 +619,54 @@ std::vector<uint8_t> WindowsSplitTunnel::generateProcessBlob() {
   header->TotalLength = bufferSize;
 
   return out;
+}
+
+// static
+void WindowsSplitTunnel::fixDriverPath() {
+  QFileInfo ours(qApp->applicationDirPath() + "/" + DRIVER_FILENAME);
+  if (!ours.exists()) {
+    return;
+  }
+  auto serviceManager = OpenSCManager(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
+  if (!serviceManager) {
+    return;
+  }
+  auto cleanup = qScopeGuard([&] { CloseServiceHandle(serviceManager); });
+  auto service = OpenService(serviceManager, DRIVER_SERVICE_NAME,
+                             SERVICE_QUERY_CONFIG | SERVICE_CHANGE_CONFIG);
+  if (!service) {
+    return;
+  }
+  auto cleanupService = qScopeGuard([&] { CloseServiceHandle(service); });
+
+  DWORD needed = 0;
+  QueryServiceConfigW(service, nullptr, 0, &needed);
+  if (needed == 0) {
+    return;
+  }
+  QByteArray buffer(needed, 0);
+  auto config = reinterpret_cast<LPQUERY_SERVICE_CONFIGW>(buffer.data());
+  if (!QueryServiceConfigW(service, config, needed, &needed)) {
+    return;
+  }
+  QString current = QString::fromWCharArray(config->lpBinaryPathName);
+  QString filePath = current;
+  if (filePath.startsWith("\\??\\")) {
+    filePath = filePath.mid(4);
+  }
+  filePath.remove('"');
+  if (QFileInfo::exists(filePath)) {
+    return;
+  }
+  QString path = QDir::toNativeSeparators(ours.absoluteFilePath());
+  logger.warning() << "Split tunnel driver path is broken:" << current
+                   << "- re-pointing it to" << path;
+  if (!ChangeServiceConfigW(service, SERVICE_NO_CHANGE, SERVICE_NO_CHANGE,
+                            SERVICE_NO_CHANGE, (const wchar_t*)path.utf16(),
+                            nullptr, nullptr, nullptr, nullptr, nullptr,
+                            nullptr)) {
+    WindowsUtils::windowsLog("Failed to fix the split tunnel driver path");
+  }
 }
 
 // static
