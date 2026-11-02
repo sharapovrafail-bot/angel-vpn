@@ -27,6 +27,7 @@ Logger logger("WindowsTunnelService");
 
 static bool stopAndDeleteTunnelService(SC_HANDLE service);
 static bool waitForServiceStatus(SC_HANDLE service, DWORD expectedStatus);
+static void waitForServiceRemoval(SC_HANDLE scm);
 
 WindowsTunnelService::WindowsTunnelService(QObject* parent) : QObject(parent) {
   MZ_COUNT_CTOR(WindowsTunnelService);
@@ -124,7 +125,9 @@ bool WindowsTunnelService::start(const QString& configData) {
     }
     m_logthread.quit();
     m_logthread.wait();
-    delete m_logworker;
+    // The worker is deleted by deleteLater() on QThread::finished; deleting
+    // it here as well was a double free that crashed the service whenever
+    // starting the tunnel failed.
     m_logworker = nullptr;
   });
 
@@ -138,6 +141,7 @@ bool WindowsTunnelService::start(const QString& configData) {
     CloseServiceHandle(service);
     service = nullptr;
   }
+  waitForServiceRemoval(scm);
 
   QString serviceCmdline;
   {
@@ -228,11 +232,32 @@ static bool stopAndDeleteTunnelService(SC_HANDLE service) {
   logger.debug() << "Proceeding with the deletion";
 
   if (!DeleteService(service)) {
+    // Angel VPN: a previous stop may already have marked it for deletion.
+    // That is fine - the caller waits until it is really gone.
+    if (GetLastError() == ERROR_SERVICE_MARKED_FOR_DELETE) {
+      logger.debug() << "The service is already marked for deletion";
+      return true;
+    }
     WindowsUtils::windowsLog("Failed to delete the service");
     return false;
   }
 
   return true;
+}
+
+// Angel VPN: DeleteService only marks the service; it disappears when the last
+// handle is closed. Creating it again before that fails with
+// ERROR_SERVICE_MARKED_FOR_DELETE and dropped the connection.
+static void waitForServiceRemoval(SC_HANDLE scm) {
+  for (int i = 0; i < 100; ++i) {
+    SC_HANDLE probe = OpenService(scm, TUNNEL_SERVICE_NAME, SERVICE_QUERY_STATUS);
+    if (!probe) {
+      return;
+    }
+    CloseServiceHandle(probe);
+    Sleep(100);
+  }
+  logger.warning() << "The old tunnel service is still pending deletion";
 }
 
 QString WindowsTunnelService::uapiCommand(const QString& command) {
