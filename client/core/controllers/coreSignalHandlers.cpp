@@ -2,6 +2,12 @@
 
 #include <QTimer>
 #include <QtConcurrent>
+#ifdef Q_OS_WINDOWS
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #include "core/utils/selfhosted/sshSession.h"
 #include "core/utils/errorCodes.h"
@@ -292,9 +298,43 @@ void CoreSignalHandlers::initLanguageHandler()
     });
 }
 
+#ifdef Q_OS_WINDOWS
+// Angel VPN: the tunnel runs in its own Windows service. If the UI was closed or
+// restarted while the tunnel stayed up, the window showed "Disconnected" although
+// the VPN was working. Detect such an orphaned tunnel on startup.
+static bool isOrphanTunnelRunning()
+{
+    SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (!scm) {
+        return false;
+    }
+    bool running = false;
+    SC_HANDLE svc = OpenServiceW(scm, L"AmneziaWGTunnel$AngelVPN", SERVICE_QUERY_STATUS);
+    if (svc) {
+        SERVICE_STATUS status;
+        if (QueryServiceStatus(svc, &status)) {
+            running = status.dwCurrentState == SERVICE_RUNNING || status.dwCurrentState == SERVICE_START_PENDING;
+        }
+        CloseServiceHandle(svc);
+    }
+    CloseServiceHandle(scm);
+    return running;
+}
+#endif
+
 void CoreSignalHandlers::initAutoConnectHandler()
 {
-    if (m_coreController->m_settingsUiController->isAutoConnectEnabled()
+    bool reconnect = m_coreController->m_settingsUiController->isAutoConnectEnabled();
+#ifdef Q_OS_WINDOWS
+    if (!reconnect && isOrphanTunnelRunning()) {
+        // Re-attach: connecting again replaces the orphaned tunnel service
+        // (WindowsTunnelService::start deletes a previous instance) and the UI
+        // gets the real "Connected" state.
+        qInfo() << "Orphaned Angel VPN tunnel detected on startup, re-attaching";
+        reconnect = true;
+    }
+#endif
+    if (reconnect
         && !m_coreController->m_serversController->getDefaultServerId().isEmpty()) {
         QTimer::singleShot(1000, this, [this]() { m_coreController->m_connectionUiController->toggleConnection(); });
     }
