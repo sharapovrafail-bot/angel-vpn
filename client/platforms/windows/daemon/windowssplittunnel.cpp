@@ -788,8 +788,10 @@ bool WindowsSplitTunnel::detectConflict() {
   // Query for Mullvad Service.
   auto servicehandle =
       OpenService(serviceManager, MV_SERVICE_NAME, GENERIC_READ);
-  auto err = GetLastError();
-  CloseServiceHandle(servicehandle);
+  auto err = servicehandle ? ERROR_SUCCESS : GetLastError();
+  if (servicehandle) {
+    CloseServiceHandle(servicehandle);
+  }
   if (err != ERROR_SERVICE_DOES_NOT_EXIST) {
     WindowsUtils::windowsLog("Mullvad Detected - Disabling SplitTunnel: ");
     // Mullvad is installed, so we would certainly break things.
@@ -804,11 +806,17 @@ bool WindowsSplitTunnel::detectConflict() {
   // The driver exists, so let's check if it has been created by us.
   // If our service is not present, it's has been created by
   // someone else so we should not use that :)
+  // Angel VPN: GetLastError() is not reset by a successful OpenService, so
+  // the old check still saw ERROR_SERVICE_DOES_NOT_EXIST from the Mullvad
+  // lookup above and reported a false conflict whenever the driver was
+  // already loaded (i.e. after every service restart). Check the handle.
   servicehandle =
       OpenService(serviceManager, DRIVER_SERVICE_NAME, GENERIC_READ);
-  err = GetLastError();
-  CloseServiceHandle(servicehandle);
-  return err == ERROR_SERVICE_DOES_NOT_EXIST;
+  if (servicehandle) {
+    CloseServiceHandle(servicehandle);
+    return false;
+  }
+  return GetLastError() == ERROR_SERVICE_DOES_NOT_EXIST;
 }
 
 bool WindowsSplitTunnel::isRunning() { return getState() == STATE_RUNNING; }
