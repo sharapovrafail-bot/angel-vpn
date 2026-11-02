@@ -30,8 +30,12 @@ int runApplication(int argc, char** argv)
         }
 
         if (!tokens.empty() && tokens[0] == "tunneldaemon") {
+            // Angel VPN: the tunnel process must exit when the tunnel stops.
+            // Falling through started a second full daemon (LocalServer) that
+            // grabbed the IPC pipes and the split tunnel driver, which broke
+            // the real service: hangs, wrong UI state, split tunnel failures.
             WindowsDaemonTunnel *daemon = new WindowsDaemonTunnel();
-            daemon->run(tokens);
+            return daemon->run(tokens);
         }
     }
 #endif
